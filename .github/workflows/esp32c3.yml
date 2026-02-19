@@ -8,13 +8,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install ESP32 core
+      - name: Install ESP32 Core
         run: |
           arduino-cli config init
           arduino-cli core update-index
@@ -22,10 +22,10 @@ jobs:
 
       - name: Compile Sketch
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32c3 ./blink.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32c3 .
 
       - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          name: firmware
-          path: .
+          name: esp32c3-firmware
+          path: build
