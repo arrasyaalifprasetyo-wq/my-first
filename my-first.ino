@@ -1,51 +1,78 @@
 #include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "time.h"
 
-const char* ssid = "Arrasya";
+const char* ssid     = "Arrasya";
 const char* password = "kurakura";
 
-#define LED_PIN 8   // kalau tidak nyala coba 2 atau 10
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
 
-WiFiServer server(80);
+#define SDA_PIN 4
+#define SCL_PIN 5
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// NTP
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 7 * 3600;  // WIB
+const int   daylightOffset_sec = 0;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
 
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting");
+  Wire.begin(SDA_PIN, SCL_PIN);
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED gagal");
+    while(true);
   }
 
-  Serial.println();
-  Serial.println("Connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0,0);
+  display.println("Connecting WiFi...");
+  display.display();
 
-  server.begin();
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  }
+
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 }
 
 void loop() {
-  WiFiClient client = server.available();
-  if (!client) return;
+  struct tm timeinfo;
 
-  String request = client.readStringUntil('\r');
-  client.flush();
-
-  if (request.indexOf("/ON") != -1) {
-    digitalWrite(LED_PIN, HIGH);
-  }
-  if (request.indexOf("/OFF") != -1) {
-    digitalWrite(LED_PIN, LOW);
+  if(!getLocalTime(&timeinfo)){
+    return;
   }
 
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: text/html");
-  client.println();
-  client.println("<h1>ESP32-C3 Control</h1>");
-  client.println("<a href=\"/ON\"><button>LED ON</button></a>");
-  client.println("<a href=\"/OFF\"><button>LED OFF</button></a>");
-  client.stop();
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.println("ESP32-C3 CLOCK");
+
+  display.setTextSize(2);
+  display.setCursor(0,20);
+  display.printf("%02d:%02d:%02d",
+                 timeinfo.tm_hour,
+                 timeinfo.tm_min,
+                 timeinfo.tm_sec);
+
+  display.setTextSize(1);
+  display.setCursor(0,50);
+  display.printf("%02d-%02d-%04d",
+                 timeinfo.tm_mday,
+                 timeinfo.tm_mon + 1,
+                 timeinfo.tm_year + 1900);
+
+  display.display();
+
+  delay(1000);
 }
