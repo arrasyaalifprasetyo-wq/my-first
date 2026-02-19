@@ -2,33 +2,27 @@ name: Build ESP32-C3 SuperMini
 
 on:
   push:
-  pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v1
+      - uses: arduino/setup-arduino-cli@v1
 
-      - name: Install ESP32 core
-        run: |
+      - run: |
           arduino-cli core update-index
           arduino-cli core install esp32:esp32
 
-      - name: Compile Sketch
-        run: |
+      - run: |
           arduino-cli compile \
           --fqbn esp32:esp32:esp32c3 \
           --output-dir build \
           blink.ino
 
-      - name: Upload BIN file
-        uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: esp32c3-build
           path: build
