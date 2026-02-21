@@ -6,6 +6,7 @@
 #include <Preferences.h>
 #include "time.h"
 #include "esp_sleep.h"
+#include <math.h>
 
 // ================= OLED =================
 #define SCREEN_WIDTH 128
@@ -35,7 +36,6 @@ Adafruit_BMP280 bmp;
 
 // ================= VARIABLE =================
 int sweepAngle = 0;
-int prevSecond = -1;
 String prevHour = "--";
 String prevMin = "--";
 String prevSec = "--";
@@ -67,12 +67,6 @@ void connectWiFiAndSyncTime() {
     display.print("Time Synced");
     display.display();
     delay(1000);
-  } else {
-    display.clearDisplay();
-    display.setCursor(0, 25);
-    display.print("WiFi Failed");
-    display.display();
-    delay(1500);
   }
 }
 
@@ -104,7 +98,7 @@ void drawRadarBase() {
 }
 
 // =================================================
-// RADAR SWEEP (SMOOTH)
+// RADAR SWEEP
 // =================================================
 void drawRadarSweep() {
   int cx = 96;
@@ -155,7 +149,7 @@ void drawSeconds(String s) {
 }
 
 // =================================================
-// DRAW BMP280 DATA
+// DRAW BMP280
 // =================================================
 void drawEnv(float temp, float pressure) {
   display.fillRect(0, 30, 80, 30, BLACK);
@@ -167,7 +161,7 @@ void drawEnv(float temp, float pressure) {
 
   display.setCursor(0, 42);
   display.print("P:");
-  display.print(pressure, 1);
+  display.print(pressure / 100.0, 1);
   display.print("hPa");
 
   display.display();
@@ -195,3 +189,45 @@ void goToSleep() {
 void setup() {
 
   Serial.begin(115200);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    while (true);
+  }
+
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+
+  if (!bmp.begin(0x76)) {
+    display.setCursor(0, 25);
+    display.print("BMP280 Error");
+    display.display();
+    while (true);
+  }
+
+  connectWiFiAndSyncTime();
+}
+
+// =================================================
+// LOOP
+// =================================================
+void loop() {
+
+  String h = getTime('H');
+  String m = getTime('M');
+  String s = getTime('S');
+
+  float temp = bmp.readTemperature();
+  float pressure = bmp.readPressure();
+
+  drawClock(h, m);
+  drawSeconds(s);
+  drawEnv(temp, pressure);
+  drawRadarBase();
+  drawRadarSweep();
+
+  if (digitalRead(TOUCH_PIN) == HIGH) {
+    goToSleep();
+  }
+}
