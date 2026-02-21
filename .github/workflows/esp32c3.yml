@@ -27,12 +27,12 @@ jobs:
           arduino-cli lib install "Adafruit GFX Library"
           arduino-cli lib install "Adafruit BMP280 Library"
 
-      - name: Compile for ESP32-C3
+      - name: Compile my-first.ino for ESP32-C3
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:esp32c3 \
             --output-dir build \
-            .
+            my-first.ino
 
       - name: Upload BIN File
         uses: actions/upload-artifact@v4
