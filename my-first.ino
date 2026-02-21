@@ -1,78 +1,197 @@
-#include <WiFi.h>
 #include <Wire.h>
+#include <WiFi.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_BMP280.h>
+#include <Preferences.h>
 #include "time.h"
+#include "esp_sleep.h"
 
-const char* ssid     = "Arrasya";
-const char* password = "kurakura";
-
+// ================= OLED =================
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_RESET    -1
-
-#define SDA_PIN 4
-#define SCL_PIN 5
-
+#define OLED_RESET -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// NTP
+// ================= I2C PIN ESP32-C3 =================
+#define SDA_PIN 2
+#define SCL_PIN 0
+
+// ================= TOUCH =================
+#define TOUCH_PIN 1
+Preferences prefs;
+
+// ================= WIFI =================
+const char* ssid = "Arrasya";
+const char* password = "kurakura";
+
+// ================= NTP =================
 const char* ntpServer = "pool.ntp.org";
-const long  gmtOffset_sec = 7 * 3600;  // WIB
-const int   daylightOffset_sec = 0;
+const long gmtOffset_sec = 7 * 3600;
+const int daylightOffset_sec = 0;
 
-void setup() {
-  Serial.begin(115200);
+// ================= BMP280 =================
+Adafruit_BMP280 bmp;
 
-  Wire.begin(SDA_PIN, SCL_PIN);
+// ================= VARIABLE =================
+int sweepAngle = 0;
+int prevSecond = -1;
+String prevHour = "--";
+String prevMin = "--";
+String prevSec = "--";
 
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println("OLED gagal");
-    while(true);
-  }
-
+// =================================================
+// WIFI + SYNC TIME
+// =================================================
+void connectWiFiAndSyncTime() {
   display.clearDisplay();
+  display.setCursor(0, 25);
   display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0,0);
-  display.println("Connecting WiFi...");
+  display.print("Connecting WiFi...");
   display.display();
 
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  int retry = 0;
+
+  while (WiFi.status() != WL_CONNECTED && retry < 20) {
     delay(500);
+    display.print(".");
+    display.display();
+    retry++;
   }
 
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  if (WiFi.status() == WL_CONNECTED) {
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    display.clearDisplay();
+    display.setCursor(0, 25);
+    display.print("Time Synced");
+    display.display();
+    delay(1000);
+  } else {
+    display.clearDisplay();
+    display.setCursor(0, 25);
+    display.print("WiFi Failed");
+    display.display();
+    delay(1500);
+  }
 }
 
-void loop() {
+// =================================================
+// GET TIME
+// =================================================
+String getTime(char formatType) {
   struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) return "--";
 
-  if(!getLocalTime(&timeinfo)){
-    return;
+  char buffer[8];
+  if (formatType == 'H') strftime(buffer, sizeof(buffer), "%H", &timeinfo);
+  if (formatType == 'M') strftime(buffer, sizeof(buffer), "%M", &timeinfo);
+  if (formatType == 'S') strftime(buffer, sizeof(buffer), "%S", &timeinfo);
+
+  return String(buffer);
+}
+
+// =================================================
+// RADAR BASE
+// =================================================
+void drawRadarBase() {
+  int cx = 96;
+  int cy = 40;
+
+  display.drawCircle(cx, cy, 20, WHITE);
+  display.drawCircle(cx, cy, 15, WHITE);
+  display.drawCircle(cx, cy, 10, WHITE);
+}
+
+// =================================================
+// RADAR SWEEP (SMOOTH)
+// =================================================
+void drawRadarSweep() {
+  int cx = 96;
+  int cy = 40;
+
+  float rad = sweepAngle * 3.14159 / 180.0;
+  int x2 = cx + cos(rad) * 20;
+  int y2 = cy + sin(rad) * 20;
+
+  display.drawLine(cx, cy, x2, y2, WHITE);
+  display.display();
+  delay(15);
+  display.drawLine(cx, cy, x2, y2, BLACK);
+
+  sweepAngle += 5;
+  if (sweepAngle >= 360) sweepAngle = 0;
+}
+
+// =================================================
+// DRAW CLOCK
+// =================================================
+void drawClock(String h, String m) {
+  if (h != prevHour || m != prevMin) {
+    prevHour = h;
+    prevMin = m;
+
+    display.fillRect(0, 0, 70, 16, BLACK);
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    display.print(h + ":" + m);
+    display.display();
   }
+}
 
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setCursor(0,0);
-  display.println("ESP32-C3 CLOCK");
+// =================================================
+// DRAW SECONDS
+// =================================================
+void drawSeconds(String s) {
+  if (s != prevSec) {
+    prevSec = s;
 
-  display.setTextSize(2);
-  display.setCursor(0,20);
-  display.printf("%02d:%02d:%02d",
-                 timeinfo.tm_hour,
-                 timeinfo.tm_min,
-                 timeinfo.tm_sec);
+    display.fillRect(0, 18, 60, 10, BLACK);
+    display.setTextSize(1);
+    display.setCursor(0, 18);
+    display.print("Sec: " + s);
+    display.display();
+  }
+}
 
-  display.setTextSize(1);
-  display.setCursor(0,50);
-  display.printf("%02d-%02d-%04d",
-                 timeinfo.tm_mday,
-                 timeinfo.tm_mon + 1,
-                 timeinfo.tm_year + 1900);
+// =================================================
+// DRAW BMP280 DATA
+// =================================================
+void drawEnv(float temp, float pressure) {
+  display.fillRect(0, 30, 80, 30, BLACK);
+
+  display.setCursor(0, 30);
+  display.print("T:");
+  display.print(temp, 1);
+  display.print("C");
+
+  display.setCursor(0, 42);
+  display.print("P:");
+  display.print(pressure, 1);
+  display.print("hPa");
 
   display.display();
-
-  delay(1000);
 }
+
+// =================================================
+// SLEEP MODE
+// =================================================
+void goToSleep() {
+  display.clearDisplay();
+  display.setCursor(20, 30);
+  display.print("Sleep Mode");
+  display.display();
+  delay(1000);
+
+  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
+  esp_deep_sleep_enable_gpio_wakeup(1ULL << TOUCH_PIN, ESP_GPIO_WAKEUP_GPIO_HIGH);
+
+  esp_deep_sleep_start();
+}
+
+// =================================================
+// SETUP
+// =================================================
+void setup() {
+
+  Serial.begin(115200);
